@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,16 +11,15 @@ import (
 
 func main() {
 	kv := keyvalues.CreateKeyValue()
-	listen, err := net.Listen("tcp", ":6140")
 
+	listener, err := net.Listen("tcp", ":6380")
 	if err != nil {
 		fmt.Println("Failed to start server:", err)
 		return
 	}
 
-	defer listen.Close()
-	fmt.Println("Listening to port :6140")
-
+	defer listener.Close()
+	fmt.Println("Listening to port :6380")
 	aof, err := NewAof("database.aof")
 	if err != nil {
 		fmt.Println("Failed to load data:", err)
@@ -27,28 +27,43 @@ func main() {
 	}
 	defer aof.CloseAof()
 
-	aof.ReadAof(func(value Value) {
+	err = aof.ReadAof(func(value Value) {
 		parts, err := valueToParts(value)
 		if err != nil {
 			fmt.Println("Invalid AOF command:", err)
 			return
 		}
 
-		response, _ := dispatch(parts, kv)
-
-		fmt.Println("Restored:", parts, response)
+		dispatch(parts, kv)
 	})
 
+	if err != nil {
+		fmt.Println("Failed to restore data:", err)
+		return
+	}
+
+	if err := serve(listener, kv, aof); err != nil {
+		fmt.Println("Server stopped:", err)
+	}
+}
+
+func serve(
+	listener net.Listener,
+	kv *keyvalues.KeyValues,
+	aof *Aof,
+) error {
 	for {
-		conn, err := listen.Accept()
+		conn, err := listener.Accept()
+
 		if err != nil {
-			fmt.Println("Client disconnected. ERROR:", err)
-			continue
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+
+			return err
 		}
-		fmt.Println("Client connected:", conn.RemoteAddr(), conn.LocalAddr())
-		go func() {
-			handleConnection(conn, kv, aof)
-		}()
+
+		go handleConnection(conn, kv, aof)
 	}
 }
 

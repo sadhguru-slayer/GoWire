@@ -12,6 +12,9 @@ type Aof struct {
 	file *os.File
 	rd   *bufio.Reader
 	mu   sync.RWMutex
+
+	stop chan struct{}
+	done chan struct{}
 }
 
 func NewAof(path string) (*Aof, error) {
@@ -22,14 +25,26 @@ func NewAof(path string) (*Aof, error) {
 	aof := &Aof{
 		file: f,
 		rd:   bufio.NewReader(f),
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
 	}
 
 	go func() {
+		defer close(aof.done)
+
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
 		for {
-			aof.mu.Lock()
-			aof.file.Sync()
-			aof.mu.Unlock()
-			time.Sleep(time.Second)
+			select {
+			case <-ticker.C:
+				aof.mu.Lock()
+				aof.file.Sync()
+				aof.mu.Unlock()
+
+			case <-aof.stop:
+				return
+			}
 		}
 	}()
 
@@ -37,8 +52,12 @@ func NewAof(path string) (*Aof, error) {
 }
 
 func (aof *Aof) CloseAof() error {
+	close(aof.stop)
+	<-aof.done
+
 	aof.mu.Lock()
 	defer aof.mu.Unlock()
+
 	return aof.file.Close()
 }
 
@@ -59,7 +78,7 @@ func (aof *Aof) ReadAof(callback func(value Value)) error {
 	if _, err := aof.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	resp := NewRESP(aof.file)
+	resp := NewRESP(aof.rd)
 
 	for {
 		value, err := resp.Read()

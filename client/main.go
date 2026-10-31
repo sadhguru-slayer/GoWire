@@ -49,14 +49,14 @@ func printValue(v Value) {
 }
 
 func main() {
-	conn, err := net.Dial("tcp", "localhost:6140")
+	conn, err := net.Dial("tcp", "localhost:6380")
 	if err != nil {
 		fmt.Println("Connection error:", err)
 		return
 	}
 	defer conn.Close()
 
-	fmt.Println("Connected to localhost:6140")
+	fmt.Println("Connected to localhost:6380")
 
 	input := bufio.NewScanner(os.Stdin)
 
